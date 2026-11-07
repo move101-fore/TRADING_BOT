@@ -10,4 +10,4 @@ print(df.head(3))
 print(df.tail(3))
 
 mt5c.disconnect()
- | Set-Content tests\check_mt5.py
+
