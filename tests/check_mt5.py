@@ -1,4 +1,4 @@
-@'
+
 from backend.market_data import mt5_connector as mt5c
 
 info = mt5c.connect()
@@ -10,4 +10,4 @@ print(df.head(3))
 print(df.tail(3))
 
 mt5c.disconnect()
-'@ | Set-Content tests\check_mt5.py
+ | Set-Content tests\check_mt5.py
