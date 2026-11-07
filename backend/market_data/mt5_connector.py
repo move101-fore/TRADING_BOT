@@ -48,4 +48,4 @@ def get_candles(symbol, timeframe="H1", count=1000):
     df = pd.DataFrame(rates)
     df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
     return df[["time", "open", "high", "low", "close", "tick_volume", "spread"]]
-| Set-Content backend\market_data\mt5_connector.py
+
