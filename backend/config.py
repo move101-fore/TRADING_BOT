@@ -38,3 +38,4 @@ RISK_PER_TRADE_PCT = 0.5
 MAX_DAILY_LOSS_PCT = 2.0
 MAX_OPEN_POSITIONS = 3
 MIN_REWARD_RISK = 2.0
+MT5_PATH = os.getenv("MT5_PATH", r"C:\Program Files\MetaTrader 5\terminal64.exe")
