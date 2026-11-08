@@ -1,7 +1,6 @@
 import json
+from dataclasses import asdict
 from pathlib import Path
-
-import MetaTrader5 as mt5
 
 from backend import config
 from backend.market_data import mt5_connector as mt5c
@@ -11,30 +10,30 @@ OUT = Path("data") / "symbols.json"
 
 def main():
     mt5c.connect()
-    info = {}
     try:
-        for name, broker in config.SYMBOLS.items():
-            mt5.symbol_select(broker, True)
-            s = mt5.symbol_info(broker)
-            if s is None:
-                print(f"{name}: not found ({broker})")
-                continue
-            info[name] = {
-                "broker_symbol": broker,
-                "point": s.point,
-                "digits": s.digits,
-                "tick_size": s.trade_tick_size,
-                "tick_value": s.trade_tick_value,
-                "contract_size": s.trade_contract_size,
-                "volume_min": s.volume_min,
-                "volume_step": s.volume_step,
-            }
-            print(f"{name}: point={s.point} digits={s.digits} contract={s.trade_contract_size}")
+        specs, errors = mt5c.load_all_specs()
     finally:
         mt5c.disconnect()
+
+    for name, spec in specs.items():
+        print(f"{name}: OK  point={spec.point} tick_value={spec.tick_value} "
+              f"lots={spec.volume_min}-{spec.volume_max} step={spec.volume_step} "
+              f"stops_level={spec.stops_level_points}")
+    for name, problem in errors.items():
+        print(f"{name}: PROBLEM  {problem}")
+
+    if errors:
+        print("\nNot saved: at least one symbol failed validation. The existing file was left unchanged.")
+        raise SystemExit(1)
+
+    data = {}
+    for name, spec in specs.items():
+        d = asdict(spec)
+        d["broker_symbol"] = config.SYMBOLS.get(name, name)
+        data[name] = d
     OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(json.dumps(info, indent=2))
-    print("saved", OUT)
+    OUT.write_text(json.dumps(data, indent=2))
+    print("\nsaved", OUT)
 
 
 if __name__ == "__main__":
