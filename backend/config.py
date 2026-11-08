@@ -23,14 +23,14 @@ API_PORT = 5000
 # Map our standard names to your broker's names.
 # If Exness uses a suffix (e.g. "EURUSDm"), change it here only.
 SYMBOLS = {
-    "EURUSD": "EURUSD",
-    "GBPUSD": "GBPUSD",
-    "USDJPY": "USDJPY",
-    "USDCHF": "USDCHF",
-    "AUDUSD": "AUDUSD",
-    "USDCAD": "USDCAD",
-    "NZDUSD": "NZDUSD",
-    "XAUUSD": "XAUUSD",
+    "EURUSD": "EURUSDm",
+    "GBPUSD": "GBPUSDm",
+    "USDJPY": "USDJPYm",
+    "USDCHF": "USDCHFm",
+    "AUDUSD": "AUDUSDm",
+    "USDCAD": "USDCADm",
+    "NZDUSD": "NZDUSDm",
+    "XAUUSD": "XAUUSDm",
 }
 
 # Risk defaults
