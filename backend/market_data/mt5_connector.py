@@ -1,4 +1,3 @@
-
 import MetaTrader5 as mt5
 import pandas as pd
 
@@ -13,15 +12,25 @@ TIMEFRAMES = {
 
 
 def connect():
-    """Connect to the MT5 terminal and log in. Returns account info."""
-    ok = mt5.initialize(
-        login=config.MT5_LOGIN,
-        password=config.MT5_PASSWORD,
-        server=config.MT5_SERVER,
-    )
+    """
+    Start/attach to the MT5 terminal by path, then make sure the right
+    account is logged in. Returns account info.
+    """
+    ok = mt5.initialize(path=config.MT5_PATH, timeout=120000)
     if not ok:
         raise RuntimeError(f"MT5 initialize failed: {mt5.last_error()}")
-    return mt5.account_info()
+
+    info = mt5.account_info()
+    # If the terminal is not already on our account, log in explicitly.
+    if info is None or info.login != config.MT5_LOGIN:
+        if not mt5.login(
+            config.MT5_LOGIN,
+            password=config.MT5_PASSWORD,
+            server=config.MT5_SERVER,
+        ):
+            raise RuntimeError(f"MT5 login failed: {mt5.last_error()}")
+        info = mt5.account_info()
+    return info
 
 
 def disconnect():
@@ -48,4 +57,3 @@ def get_candles(symbol, timeframe="H1", count=1000):
     df = pd.DataFrame(rates)
     df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
     return df[["time", "open", "high", "low", "close", "tick_volume", "spread"]]
-
