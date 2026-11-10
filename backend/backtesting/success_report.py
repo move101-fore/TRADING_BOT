@@ -69,7 +69,7 @@ def random_signals(df, atr, n, rng, rr=2.0, sl_mult=1.5, max_hold=48):
     return out
 
 
-def random_baseline(loader, point_fn, symbols, cfg=None, seeds=(1, 2, 3), n_per_symbol=3000):
+def random_baseline(loader, point_fn, symbols, cfg=None, seeds=(1, 2, 3), n_per_symbol=3000, swap_fn=None):
     """What pure chance earns with the same stops, targets and costs."""
     from backend.market_data.indicators import add_indicators
     cfg = cfg or BacktestConfig()
@@ -78,10 +78,11 @@ def random_baseline(loader, point_fn, symbols, cfg=None, seeds=(1, 2, 3), n_per_
         df = loader(sym)
         data = add_indicators(df)
         point = point_fn(sym)
+        swap = swap_fn(sym) if swap_fn else None
         for seed in seeds:
             rng = np.random.default_rng(seed)
             sig = random_signals(data, data["atr_14"], n_per_symbol, rng)
-            t = backtest(data, sig, point, cfg, atr=data["atr_14"], strategy="RANDOM_BASELINE", symbol=sym)
+            t = backtest(data, sig, point, cfg, atr=data["atr_14"], strategy="RANDOM_BASELINE", symbol=sym, swap=swap)
             parts.append(t)
     return pd.concat(parts, ignore_index=True)
 
@@ -113,7 +114,8 @@ def main():
         from backend.backtesting.backtest_engine import load_point
         from backend.market_data.candle_manager import load
         print("Running random-entry baseline (this takes a minute)...")
-        base = random_baseline(load, load_point, list(config.SYMBOLS))
+        from backend.backtesting.run_backtest import swap_or_none
+        base = random_baseline(load, load_point, list(config.SYMBOLS), swap_fn=swap_or_none)
         table = pd.concat([table, success_table(base)], ignore_index=True)
 
     print_table(table)

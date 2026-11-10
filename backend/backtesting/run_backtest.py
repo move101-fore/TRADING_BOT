@@ -3,7 +3,7 @@ import argparse
 import pandas as pd
 
 from backend import config
-from backend.backtesting.backtest_engine import BacktestConfig, backtest, load_point
+from backend.backtesting.backtest_engine import BacktestConfig, backtest, load_point, load_swap
 from backend.backtesting.performance import summarize
 from backend.market_data.candle_manager import load
 from backend.market_data.indicators import add_indicators
@@ -22,17 +22,26 @@ def make_strategies():
     return [TrendFollowing(), Breakout(), Pullback(), Reversal()]
 
 
-def run_all(loader=load, point_fn=load_point, symbols=None, cfg=None):
+def swap_or_none(symbol):
+    """Swap model if data/swaps.json exists; otherwise None (and the caller says so)."""
+    try:
+        return load_swap(symbol)
+    except FileNotFoundError:
+        return None
+
+
+def run_all(loader=load, point_fn=load_point, symbols=None, cfg=None, swap_fn=swap_or_none):
     cfg = cfg or BacktestConfig()
     parts = []
     for sym in (symbols or list(config.SYMBOLS)):
         df = loader(sym)
         point = point_fn(sym)
+        swap = swap_fn(sym) if swap_fn else None
         data = add_indicators(df)
         for strat in make_strategies():
             sig = strat.generate(data)
             parts.append(backtest(data, sig, point, cfg, atr=data["atr_14"],
-                                  strategy=strat.name, symbol=sym))
+                                  strategy=strat.name, symbol=sym, swap=swap))
         print("done", sym, flush=True)
     return pd.concat(parts, ignore_index=True)
 
@@ -84,6 +93,8 @@ def main():
     args = ap.parse_args()
 
     cfg = BacktestConfig(slippage_atr=args.slippage)
+    print("Swap model:", "ON (data/swaps.json)" if swap_or_none("EURUSD") is not None
+          else "OFF (data/swaps.json not found; run python -m backend.market_data.swap_info)")
     trades = run_all(cfg=cfg)
     trades.to_csv("data/trades.csv", index=False)
     print(f"Saved {len(trades)} trades to data/trades.csv")
