@@ -24,7 +24,7 @@
 ## 5. Trial ledger (cap: 12 variants in total)
 | ID | Date | Hypothesis | Frozen definition | Result | Status |
 |----|------|------------|-------------------|--------|--------|
-| H5-v1 | (fill in) | Market structure: with-trend BOS beats matched controls; CHoCH reversal tested separately | see section 7 | pending | development run next |
+| H5-v1 | (fill in) | Market structure: with-trend BOS beats matched controls; CHoCH reversal tested separately | see section 7 | FAIL in development: BOS excess about 0 (12h +0.01 [-0.14,+0.16]); CHoCH net and excess negative; no kind passed at 2 of 3 horizons; validation NOT opened | closed |
 
 ## 6. Event-study method (frozen)
 - Move measured from the NEXT candle's open to the close 6, 12 or 24 H1 bars later, in ATR units, net of spread, 2 x 0.02 ATR slippage and swap.
@@ -42,3 +42,4 @@
 - At least 300 events, and the same kind must pass at 2 of the 3 horizons (guards against picking the best of many cells).
 - Positive in Development AND, when viewed once, Validation; positive excess in at least 4 of 6 half-year slices overall.
 - Only events that pass may be given exits. Each exit rule is a variant in the ledger.
+
