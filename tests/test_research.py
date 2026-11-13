@@ -3,8 +3,11 @@ import pandas as pd
 
 from backend.market_data.indicators import add_indicators
 from backend.research import event_study as es
-from backend.research.event_study import (SymbolData, block_bootstrap_ci, control_pools, gap_flags,
-                                          study)
+from backend.backtesting.backtest_engine import count_swap_nights
+from backend.research.event_study import (SymbolData, add_placebo_pvalues, block_bootstrap_ci, control_pools,
+                                          gap_flags, nearest_controls, placebo_calibration, placebo_events,
+                                          study, swap_nights_vector)
+from backend.research.verdict import STATUS_ELIGIBLE, STATUS_FAIL, verdict
 from backend.research.structure import structure_events
 
 POINT = 0.0001
@@ -106,6 +109,45 @@ def test_swap_is_charged_on_the_costly_side_only():
     assert long1 < long0 and abs(short1 - short0) < 1e-12
 
 
+def test_spread_uses_entry_candle_for_longs_and_exit_candle_for_shorts():
+    df = flat_data()
+    df.loc[301, "spread"] = 40                          # entry candle for a signal on 300
+    df.loc[306, "spread"] = 100                         # exit candle of a 6-bar hold
+    sd = SymbolData(df, POINT)
+    slip = 2 * es.SLIPPAGE_ATR * 0.001
+    long = sd.net_moves(np.array([300]), np.array([1]))[0, 0]
+    short = sd.net_moves(np.array([300]), np.array([-1]))[0, 0]
+    assert abs(long - (-(40 * POINT + slip) / 0.001)) < 1e-9
+    assert abs(short - (-(100 * POINT + slip) / 0.001)) < 1e-9
+
+
+def test_vectorised_moves_match_the_slow_reference_including_swap():
+    df = make_h1(9000, seed=4)
+    swap = {"long_pts": -30.0, "short_pts": -12.0, "triple_weekday": 2}
+    sd = SymbolData(df, POINT, swap=swap)
+    idx = np.flatnonzero(sd.valid)[::37]
+    dirs = np.where(np.arange(len(idx)) % 2 == 0, 1, -1)
+    assert np.allclose(sd.net_moves(idx, dirs), sd.net_moves_reference(idx, dirs), equal_nan=True)
+
+
+def test_swap_night_vector_matches_the_scalar_function():
+    rng = np.random.default_rng(1)
+    base = np.datetime64("2024-01-01T00:00")
+    start = base + (rng.integers(0, 24 * 60, 300)).astype("timedelta64[h]")
+    end = start + (rng.integers(1, 30, 300)).astype("timedelta64[h]")
+    got = swap_nights_vector(start, end, 2)
+    for s_, e_, g in zip(start, end, got):
+        want = count_swap_nights(pd.Timestamp(s_), pd.Timestamp(e_), 22, 2)
+        assert g == want
+
+
+def test_cost_multiplier_makes_every_trade_worse():
+    df = make_h1(4000, seed=2)
+    a, b = SymbolData(df, POINT), SymbolData(df, POINT, cost_mult=2.0)
+    idx = np.flatnonzero(a.valid)[::50]
+    assert (b.net_moves(idx, np.ones(len(idx))) < a.net_moves(idx, np.ones(len(idx)))).all()
+
+
 # ---------------------------------------------------------------- controls and bootstrap
 def test_controls_share_hour_and_volatility_and_avoid_events():
     sd = SymbolData(make_h1(6000), POINT)
@@ -176,22 +218,68 @@ def test_study_detects_a_real_planted_effect():
     res = study(events_for(df, idx), sd, n_boot=500, periods={"development": es.PERIODS["development"]})
     row = res[res["horizon"] == 12].iloc[0]
     assert row["excess_lo"] > 0 and row["excess_mean"] > 0.5
+    assert verdict(res, min_events=100).iloc[0]["status"] == STATUS_ELIGIBLE
 
 
 def test_study_finds_nothing_in_pure_noise():
     df, idx = planted_market(plant=False)
     sd = {"EURUSD": SymbolData(df, POINT)}
     res = study(events_for(df, idx), sd, n_boot=500, periods={"development": es.PERIODS["development"]})
-    assert not res["passes"].any()
+    assert verdict(res, min_events=100).iloc[0]["status"] == STATUS_FAIL
     assert (res["excess_lo"] < 0.15).all() and (res["excess_hi"] > -0.15).all()
 
 
-def test_study_reports_unmatched_events_instead_of_hiding_them():
+def test_study_reports_unmatched_and_invalid_events_instead_of_hiding_them():
+    df, idx = planted_market(plant=False)
+    sd = {"EURUSD": SymbolData(df, POINT)}
+    res = study(events_for(df, idx), sd, n_boot=200, periods={"development": es.PERIODS["development"]})
+    assert {"unmatched", "invalid"} <= set(res.columns) and (res["unmatched"] >= 0).all()
+
+
+def test_controls_are_never_reused():
+    pool = np.arange(100, 400, 3)
+    taken = np.zeros(1000, dtype=bool)
+    first = nearest_controls(pool, 250, 8, taken)
+    second = nearest_controls(pool, 250, 8, taken)
+    assert len(first) == 8 and len(second) == 8
+    assert not set(first.tolist()) & set(second.tolist())
+    assert taken[first].all() and taken[second].all()
+
+
+def test_study_marks_events_unmatched_when_controls_run_out():
     df, idx = planted_market(plant=False)
     sd = {"EURUSD": SymbolData(df, POINT)}
     ev = events_for(df, idx)
-    res = study(ev, sd, n_boot=200, periods={"development": es.PERIODS["development"]})
-    assert "unmatched" in res.columns and (res["unmatched"] >= 0).all()
+    plenty = study(ev, sd, k_controls=2, n_boot=100, periods={"development": es.PERIODS["development"]})
+    scarce = study(ev, sd, k_controls=400, n_boot=100, periods={"development": es.PERIODS["development"]})
+    assert scarce["unmatched"].iloc[0] >= plenty["unmatched"].iloc[0]
+
+
+def test_placebo_events_keep_counts_and_directions():
+    df, idx = planted_market(plant=False)
+    sd = {"EURUSD": SymbolData(df, POINT)}
+    ev = events_for(df, idx)
+    ev["direction"] = np.where(np.arange(len(ev)) % 3 == 0, -1, 1)
+    fake = placebo_events(ev, sd, {"development": es.PERIODS["development"]}, np.random.default_rng(0))
+    dev_ev = ev[pd.to_datetime(ev["time"], utc=True) < es.PERIODS["development"][1]]
+    assert len(fake) == len(dev_ev)
+    assert sorted(fake["direction"]) == sorted(dev_ev["direction"])
+
+
+def test_placebo_p_value_separates_a_real_effect_from_noise():
+    periods = {"development": es.PERIODS["development"]}
+    df, idx = planted_market(plant=True)
+    sd = {"EURUSD": SymbolData(df, POINT)}
+    ev = events_for(df, idx)
+    res = add_placebo_pvalues(study(ev, sd, n_boot=100, periods=periods),
+                              placebo_calibration(ev, sd, periods, runs=30))
+    assert (res["placebo_p"] <= 0.05).all()
+    df2, idx2 = planted_market(plant=False)
+    sd2 = {"EURUSD": SymbolData(df2, POINT)}
+    ev2 = events_for(df2, idx2)
+    res2 = add_placebo_pvalues(study(ev2, sd2, n_boot=100, periods=periods),
+                               placebo_calibration(ev2, sd2, periods, runs=30))
+    assert (res2["placebo_p"] > 0.05).any()
 
 
 # ---------------------------------------------------------------- runner and validation gate
@@ -207,7 +295,9 @@ def test_validation_can_only_be_viewed_once(tmp_path):
 def test_run_study_end_to_end_on_synthetic_data():
     from backend.research.run_h5 import run_study
     df = make_h1(17000, seed=9)
-    events, res = run_study({"EURUSD": df}, {"EURUSD": POINT}, {}, {"development": es.PERIODS["development"]}, n_boot=200)
+    events, res, verdicts = run_study({"EURUSD": df}, {"EURUSD": POINT}, {}, {"development": es.PERIODS["development"]},
+                                      n_boot=100, placebo_runs=5)
     assert set(events["kind"]) == {"BOS", "CHoCH"} and (events["symbol"] == "EURUSD").all()
     assert set(res["kind"]) == {"BOS", "CHoCH"} and set(res["horizon"]) == set(es.HORIZONS)
-    assert (res["events"] > 50).all()
+    assert (res["events"] > 50).all() and "placebo_p" in res.columns
+    assert set(verdicts["kind"]) == {"BOS", "CHoCH"}
