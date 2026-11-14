@@ -208,7 +208,7 @@ def planted_market(plant, n=17000, seed=5):
 
 
 def events_for(df, idx, kind="PLANT"):
-    return pd.DataFrame({"symbol": "EURUSD", "idx": idx, "time": df["time"].iloc[idx].values,
+    return pd.DataFrame({"symbol": "EURUSD", "idx": idx, "time": df["time"].iloc[idx].to_numpy(),
                          "kind": kind, "direction": 1})
 
 
@@ -301,3 +301,34 @@ def test_run_study_end_to_end_on_synthetic_data():
     assert set(res["kind"]) == {"BOS", "CHoCH"} and set(res["horizon"]) == set(es.HORIZONS)
     assert (res["events"] > 50).all() and "placebo_p" in res.columns
     assert set(verdicts["kind"]) == {"BOS", "CHoCH"}
+
+
+def test_incomplete_symbols_stop_the_run_unless_exclusion_is_requested():
+    import pytest
+    from backend.market_data.mt5_connector import MT5Error
+    from backend.research.run_h5 import load_frames
+
+    def loader(sym):
+        if sym == "BAD":
+            raise MT5Error("BAD H1: 8.4% of expected time is missing")
+        return sym
+
+    names = ["A", "B", "C", "D", "E", "F", "BAD"]
+    with pytest.raises(MT5Error):
+        load_frames(names, loader)
+    frames, excluded = load_frames(names, loader, skip_incomplete=True)
+    assert list(frames) == ["A", "B", "C", "D", "E", "F"] and "BAD" in excluded and "8.4%" in excluded["BAD"]
+
+
+def test_too_few_usable_symbols_is_an_error():
+    import pytest
+    from backend.market_data.mt5_connector import MT5Error
+    from backend.research.run_h5 import load_frames
+
+    def loader(sym):
+        if sym != "A":
+            raise MT5Error("incomplete")
+        return sym
+
+    with pytest.raises(SystemExit):
+        load_frames(["A", "B", "C"], loader, skip_incomplete=True)

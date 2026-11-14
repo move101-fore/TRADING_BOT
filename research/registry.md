@@ -43,3 +43,8 @@
 - Positive in Development AND, when viewed once, Validation; positive excess in at least 4 of 6 half-year slices overall.
 - Only events that pass may be given exits. Each exit rule is a variant in the ledger.
 
+
+## 9. Symbol exclusions
+- GBPUSD excluded from H5 and H1 event studies: H1 history is 8.42% incomplete (every month of 2022 patchy). All other symbols are under 3% missing.
+
+- H5-v1 FINAL (R2.1 hardened re-run, 7 symbols, development only): BOS excess +0.007/-0.007/-0.028 ATR (placebo p 0.43-0.54); CHoCH excess negative (placebo p 0.81-0.92); verdict FAIL for both; validation NOT opened; 1 of 12 variants used.

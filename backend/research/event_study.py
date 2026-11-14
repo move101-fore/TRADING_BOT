@@ -23,7 +23,7 @@ def gap_flags(times):
     """True for a bar that follows an unexpected gap (more than 3h and not the normal weekend break)."""
     t = pd.Series(pd.to_datetime(times))
     hours = t.diff().dt.total_seconds() / 3600.0
-    weekend = (hours >= 36) & (hours <= 72) & (t.shift(1).dt.weekday == 4)
+    weekend = (hours >= 36) & (hours <= 72) & (t.shift(1).dt.day_of_week == 4)
     return ((hours > 3) & ~weekend).fillna(False).to_numpy()
 
 
@@ -269,7 +269,7 @@ def placebo_events(events, symbol_data, periods, rng):
                 picked.append(rng.choice(cand) if len(cand) else idx)
             picked = np.array(picked)
             parts.append(pd.DataFrame({
-                "symbol": sym, "idx": picked, "time": sd.t.iloc[picked].values, "kind": kind,
+                "symbol": sym, "idx": picked, "time": sd.t.iloc[picked].to_numpy(), "kind": kind,
                 "direction": rng.permutation(sub["direction"].to_numpy()),
             }))
     return pd.concat(parts, ignore_index=True) if parts else events.iloc[0:0]

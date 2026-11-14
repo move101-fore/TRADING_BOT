@@ -76,7 +76,7 @@ def gap_report(df, tf):
     diff = t.diff()
     hours = diff.dt.total_seconds() / 3600.0
     prev = t.shift(1)
-    is_weekend = (hours >= 36) & (hours <= 72) & (prev.dt.weekday == 4)
+    is_weekend = (hours >= 36) & (hours <= 72) & (prev.dt.day_of_week == 4)
     unexpected = (hours > GAP_HOURS[tf]) & ~is_weekend
     gaps = pd.DataFrame({"start": prev[unexpected], "end": t[unexpected], "hours": hours[unexpected]})
     if gaps.empty:

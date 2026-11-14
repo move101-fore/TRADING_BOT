@@ -6,11 +6,13 @@ from pathlib import Path
 import pandas as pd
 
 from backend import config
+from backend.market_data.mt5_connector import MT5Error
 from backend.research.event_study import (PERIODS, SymbolData, add_placebo_pvalues, placebo_calibration,
                                           study)
 from backend.research.structure import STRUCTURE_VERSION, structure_events
 from backend.research.verdict import verdict
 
+MIN_SYMBOLS = 6
 LOG = Path("research") / "validation_log.csv"
 OUT_DIR = Path("research")
 
@@ -26,6 +28,24 @@ def record_validation(hyp_id, log=LOG):
     Path(log).parent.mkdir(parents=True, exist_ok=True)
     with open(log, "a", newline="") as f:
         csv.writer(f).writerow([hyp_id, datetime.now(timezone.utc).isoformat()])
+
+
+def load_frames(symbols, loader, skip_incomplete=False):
+    """
+    Load H1 history per symbol. A symbol whose history is refused as incomplete stops the run, unless
+    skip_incomplete is set, in which case it is EXCLUDED and reported. At least MIN_SYMBOLS must remain.
+    """
+    frames, excluded = {}, {}
+    for sym in symbols:
+        try:
+            frames[sym] = loader(sym)
+        except MT5Error as exc:
+            if not skip_incomplete:
+                raise
+            excluded[sym] = str(exc)
+    if len(frames) < MIN_SYMBOLS:
+        raise SystemExit(f"Only {len(frames)} symbols have usable history (need at least {MIN_SYMBOLS}).")
+    return frames, excluded
 
 
 def run_study(frames, points, swaps, periods, n_boot=2000, cost_mult=1.0, placebo_runs=100):
@@ -68,6 +88,8 @@ def main():
     ap.add_argument("--validation", action="store_true",
                     help="ALSO evaluate the 2024 validation period (allowed once per hypothesis version)")
     ap.add_argument("--force", action="store_true", help="re-view validation (this burns it; the registry must say so)")
+    ap.add_argument("--skip-incomplete", action="store_true",
+                    help="exclude (and report) symbols whose history is too incomplete, instead of stopping")
     ap.add_argument("--placebo-runs", type=int, default=100, help="placebo repetitions (more = finer p-values)")
     ap.add_argument("--cost-mult", type=float, default=1.0, help="multiply spread and slippage (1.5 and 2.0 are the stress tests)")
     args = ap.parse_args()
@@ -79,9 +101,12 @@ def main():
                              "Looking again would contaminate it. Define a new version instead.")
         periods["validation"] = PERIODS["validation"]
 
-    frames = {s: history.load(s, "H1") for s in config.SYMBOLS}      # refuses incomplete history
-    points = {s: load_point(s) for s in config.SYMBOLS}
-    swaps = {s: swap_or_none(s) for s in config.SYMBOLS}
+    frames, excluded = load_frames(config.SYMBOLS, lambda s: history.load(s, "H1"), args.skip_incomplete)
+    for sym, why in excluded.items():
+        print(f"EXCLUDED {sym}: {why}")
+    print("Symbols used:", ", ".join(frames))
+    points = {s: load_point(s) for s in frames}
+    swaps = {s: swap_or_none(s) for s in frames}
     print("Swap model:", "ON" if any(swaps.values()) else "OFF (data/swaps.json missing)", "| cost multiplier:", args.cost_mult)
 
     events, res, verdicts = run_study(frames, points, swaps, periods, cost_mult=args.cost_mult,
