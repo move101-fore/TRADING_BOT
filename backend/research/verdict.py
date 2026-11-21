@@ -1,7 +1,5 @@
 import pandas as pd
 
-from backend.research.event_study import HORIZONS
-
 STATUS_FAIL = "FAIL"
 STATUS_ELIGIBLE = "ELIGIBLE_FOR_ONE_VALIDATION_LOOK"
 STATUS_PASS = "PASS_DEVELOPMENT_AND_VALIDATION"
@@ -33,9 +31,10 @@ def verdict(results, need_horizons=2, min_halves=4, total_halves=6, **kw):
         dev = g[g["period"] == "development"]
         val = g[g["period"] == "validation"]
         reasons = []
+        n_h = int(g["horizon"].nunique())
         dev_ok = passing_horizons(dev, **kw)
         if len(dev_ok) < need_horizons:
-            reasons.append(f"development: passes at {len(dev_ok)} of {len(HORIZONS)} horizons, needs {need_horizons}")
+            reasons.append(f"development: passes at {len(dev_ok)} of {n_h} horizons, needs {need_horizons}")
             rows.append({"kind": kind, "status": STATUS_FAIL, "reasons": "; ".join(reasons)})
             continue
         if val.empty:
@@ -44,7 +43,7 @@ def verdict(results, need_horizons=2, min_halves=4, total_halves=6, **kw):
             continue
         val_ok = passing_horizons(val, **kw)
         if len(val_ok) < need_horizons:
-            reasons.append(f"validation: passes at {len(val_ok)} of {len(HORIZONS)} horizons, needs {need_horizons}")
+            reasons.append(f"validation: passes at {len(val_ok)} of {n_h} horizons, needs {need_horizons}")
         common = sorted(set(dev_ok) & set(val_ok))
         if not common:
             reasons.append("no horizon passes in both development and validation")

@@ -1,0 +1,13 @@
+,stage,development,validation
+parents,H4 parent candles (complete),23491,11830
+parent_range,range >= 1.0 x H4 ATR,8952,4316
+attempts,parent-side attempts (2 per parent),17904,8632
+confluence,liquidity pool confluence,1560,749
+sr_zone,support/resistance zone,698,326
+sweep,M15 sweep + reclaim (not both sides),206,93
+structure,M15 structure confirmation,42,21
+fvg,qualifying FVG,20,7
+entry,retracement entry confirmed,3,0
+news,passes news filter,3,0
+base_valid,valid data (shortest horizon),3,0
+cooldown,after 96-candle cooldown,3,0
