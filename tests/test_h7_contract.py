@@ -83,3 +83,17 @@ def test_layer_map_uses_stable_layer_names():
         "L3_structure": True,
         "L4_fvg": False,
     }
+
+
+def test_boolean_direction_is_rejected_even_though_bool_is_an_int_subclass():
+    event = make_event()
+    with pytest.raises(ValueError, match="direction must be integer"):
+        H7Event(event.symbol, event.parent_time, event.sweep_time,
+                event.decision_time, event.entry_time, True, event.layers)
+
+
+def test_mutable_layer_container_is_rejected():
+    event = make_event()
+    with pytest.raises(TypeError, match="immutable tuple"):
+        H7Event(event.symbol, event.parent_time, event.sweep_time,
+                event.decision_time, event.entry_time, event.direction, list(event.layers))
