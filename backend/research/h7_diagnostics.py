@@ -164,6 +164,10 @@ def evaluate_provisional_sample_gate(
     missing = [key for key in required if key not in minimums]
     if missing:
         raise ValueError(f"missing explicit minimums: {', '.join(missing)}")
+    for key in required:
+        value = minimums[key]
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{key} must be a non-negative integer")
 
     dev = summary["by_period"]["development"]
     val = summary["by_period"]["validation"]
