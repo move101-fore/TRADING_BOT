@@ -56,8 +56,10 @@ class H7Event:
             raise ValueError("symbol must be a non-empty string")
         for field in ("parent_time", "sweep_time", "decision_time", "entry_time"):
             _require_utc(getattr(self, field), field)
-        if self.direction not in (-1, 1):
-            raise ValueError("direction must be +1 (long) or -1 (short)")
+        if type(self.direction) is not int or self.direction not in (-1, 1):
+            raise ValueError("direction must be integer +1 (long) or -1 (short)")
+        if not isinstance(self.layers, tuple):
+            raise TypeError("layers must be an immutable tuple of LayerResult values")
         if not self.parent_time < self.sweep_time:
             raise ValueError("sweep_time must follow parent_time")
         if not self.sweep_time < self.decision_time:
