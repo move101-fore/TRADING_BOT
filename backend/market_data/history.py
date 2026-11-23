@@ -11,9 +11,9 @@ from backend.market_data.mt5_connector import MT5Connector, MT5Error, validate_c
 
 DATA_DIR = Path("data")
 MANIFEST = DATA_DIR / "history_manifest.json"
-START = datetime(2022, 1, 1, tzinfo=timezone.utc)        # H1/M15/M1 history is only reliable from here
-TF_MINUTES = {"M1": 1, "M15": 15, "H1": 60}
-GAP_HOURS = {"M1": 0.5, "M15": 1.0, "H1": 2.0}           # a gap longer than this is worth reporting
+START = datetime(2022, 1, 1, tzinfo=timezone.utc)        # configured research-history start
+TF_MINUTES = {"M1": 1, "M15": 15, "H1": 60, "H4": 240, "D1": 1440}
+GAP_HOURS = {"M1": 0.5, "M15": 1.0, "H1": 2.0, "H4": 8.0, "D1": 48.0}  # report gaps beyond these thresholds
 COLUMNS = ["time", "open", "high", "low", "close", "tick_volume", "spread"]
 MAX_MISSING_PCT = 5.0                                    # research code refuses history with more missing time
 MONTH_ALERT_HOURS = 48.0
@@ -144,7 +144,7 @@ def report_coverage():
     """Measure completeness of every saved file (not a sample week) and print it."""
     print(f"{'file':<14}{'bars':>9}  {'first':<11}{'last':<11}{'gaps':>6}{'missing%':>10}  months with more than {MONTH_ALERT_HOURS:.0f}h missing")
     for symbol in config.SYMBOLS:
-        for tf in ("H1", "M15", "M1"):
+        for tf in ("H1", "M15", "M1", "H4", "D1"):
             p = path_for(symbol, tf)
             if not p.exists():
                 continue
@@ -154,14 +154,14 @@ def report_coverage():
 
 
 def main(argv=None):
-    """Usage: python -m backend.market_data.history [H1] [M15] [M1]   or   ... report"""
+    """Usage: python -m backend.market_data.history [H1] [M15] [M1] [H4] [D1]   or   ... report"""
     args = [a for a in (sys.argv[1:] if argv is None else argv)]
     if args and args[0].lower() == "report":
         return report_coverage()
     tfs = [a.upper() for a in args] or ["H1", "M15", "M1"]
     bad = [t for t in tfs if t not in TF_MINUTES]
     if bad:
-        raise SystemExit(f"Unknown timeframe(s): {bad}. Use H1, M15 and/or M1.")
+        raise SystemExit(f"Unknown timeframe(s): {bad}. Use H1, M15, M1, H4 and/or D1.")
     c = MT5Connector()
     try:
         c.connect()

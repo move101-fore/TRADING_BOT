@@ -15,6 +15,8 @@ DTYPE = [("time", "i8"), ("open", "f8"), ("high", "f8"), ("low", "f8"), ("close"
 
 class FakeAPI:
     TIMEFRAME_H1 = 16385
+    TIMEFRAME_H4 = 16388
+    TIMEFRAME_D1 = 16408
 
     def __init__(self, missing_windows=0, first_call_fails=False):
         self.calls = 0
@@ -29,8 +31,16 @@ class FakeAPI:
         self.calls += 1
         if self.first_call_fails and self.calls == 1:
             return None
+        step_hours = {
+            self.TIMEFRAME_H1: 1,
+            self.TIMEFRAME_H4: 4,
+            self.TIMEFRAME_D1: 24,
+        }[tf]
         hours = int((b - a).total_seconds() // 3600)
-        rows = [(int((a + timedelta(hours=h)).timestamp()), 1.1, 1.101, 1.099, 1.1, 10, 8, 0) for h in range(hours)]
+        rows = [
+            (int((a + timedelta(hours=h)).timestamp()), 1.1, 1.101, 1.099, 1.1, 10, 8, 0)
+            for h in range(0, hours, step_hours)
+        ]
         return np.array(rows, dtype=DTYPE)
 
 
@@ -135,3 +145,57 @@ def test_load_refuses_unverified_or_incomplete_history(tmp_path, monkeypatch):
     assert len(load("EURUSD", "H1", manifest_path=manifest)) == 48
     assert len(load("EURUSD", "H1", require_complete=False, manifest_path=tmp_path / "none.json")) == 48
     assert read_manifest(manifest)["EURUSD_H1"]["missing_pct"] == 1.0
+
+
+
+@pytest.mark.parametrize(
+    "timeframe,step_hours",
+    [
+        ("H4", 4),
+        ("D1", 24),
+    ],
+)
+def test_download_supports_h4_and_d1(timeframe, step_hours):
+    api = FakeAPI()
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 10, 5, 30, tzinfo=timezone.utc)
+
+    df, empty = download_since(
+        FakeConn(api),
+        "EURUSD",
+        timeframe,
+        start,
+        end,
+        sleep=lambda _: None,
+    )
+
+    assert empty == 0
+    assert len(df) > 0
+    assert df["time"].is_monotonic_increasing
+    assert df["time"].is_unique
+    assert (df["time"].diff().dropna() == pd.Timedelta(hours=step_hours)).all()
+    assert df["time"].iloc[-1] <= pd.Timestamp(end) - pd.Timedelta(hours=step_hours)
+
+
+@pytest.mark.parametrize(
+    "timeframe,frequency",
+    [
+        ("H4", "4h"),
+        ("D1", "1D"),
+    ],
+)
+def test_coverage_stats_supports_h4_and_d1(timeframe, frequency):
+    df = pd.DataFrame({
+        "time": pd.date_range(
+            "2024-01-01",
+            periods=30,
+            freq=frequency,
+            tz="UTC",
+        )
+    })
+
+    stats = coverage_stats(df, timeframe)
+
+    assert stats["bars"] == 30
+    assert stats["missing_pct"] == 0.0
+    assert stats["gaps"] == 0
