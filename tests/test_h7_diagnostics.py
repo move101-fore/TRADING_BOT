@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -46,7 +46,7 @@ def test_counts_dose_and_l3_l4_overlap_without_returns():
 def test_reports_symbol_month_blocks_half_year_and_direction():
     rows = [
         event(parent_day=2),
-        event(parent_day=3, event_time=datetime(2022, 2, 3, 10, tzinfo=UTC),
+        event(event_time=datetime(2022, 2, 3, 10, tzinfo=UTC),
               parent_day=3, symbol="GBPUSD", direction=-1),
     ]
     dev = summarize_events(rows)["by_period"]["development"]
@@ -74,9 +74,7 @@ def test_holdout_label_is_rejected():
 
 def test_non_utc_timestamp_is_rejected():
     row = event()
-    row["event_time"] = datetime(2022, 1, 2, 10, tzinfo=timezone.utc).astimezone(
-        __import__("datetime").timezone(__import__("datetime").timedelta(hours=3))
-    )
+    row["event_time"] = datetime(2022, 1, 2, 10, tzinfo=timezone(timedelta(hours=3)))
     with pytest.raises(ValueError, match="must be UTC"):
         summarize_events([row])
 
