@@ -191,3 +191,11 @@ def test_accepts_numpy_integer_indices_from_dataframe_rows():
         event, candidates, np.array([10_000], dtype=np.int64), set()
     )
     assert chosen == (9_900, 10_100, 10_200)
+
+
+
+def test_requires_current_event_in_complete_qualifying_event_set():
+    with pytest.raises(ValueError, match="must include the event"):
+        select_h7_controls(
+            make_event(), [candidate(9_900)], [9_800], set()
+        )
