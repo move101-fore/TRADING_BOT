@@ -6,6 +6,7 @@ event discovery, return calculation, validation access, or trading actions.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, MutableSet
+from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -68,8 +69,9 @@ def _required_int(record: Mapping[str, Any], field: str, allowed=None) -> int:
     if field not in record:
         raise ValueError(f"missing matching field: {field}")
     value = record[field]
-    if type(value) is not int:
+    if isinstance(value, bool) or not isinstance(value, Integral):
         raise ValueError(f"{field} must be an integer")
+    value = int(value)
     if allowed is not None and value not in allowed:
         raise ValueError(f"{field} must be one of {allowed}")
     return value
@@ -128,20 +130,20 @@ def select_h7_controls(
     ):
         raise ValueError("exclusion_radius_bars must be a non-negative integer")
 
-    event_idx = event["idx"]
+    event_idx = _required_int(event, "idx")
     symbol = event["symbol"]
     event_indices = []
     for value in qualifying_event_indices:
-        if type(value) is not int or value < 0:
+        if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
             raise ValueError("qualifying event indices must be non-negative integers")
-        event_indices.append(value)
+        event_indices.append(int(value))
 
     unique_candidates: dict[int, Mapping[str, Any]] = {}
     for candidate in candidate_controls:
         _validate_match_record(candidate, "candidate control")
         if any(candidate[field] != event[field] for field in _MATCH_FIELDS):
             continue
-        idx = candidate["idx"]
+        idx = _required_int(candidate, "idx")
         if idx < 0 or abs(idx - event_idx) > window_bars:
             continue
         if (symbol, idx) in used_controls:
