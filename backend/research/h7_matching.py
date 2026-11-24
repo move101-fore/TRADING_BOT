@@ -131,12 +131,16 @@ def select_h7_controls(
         raise ValueError("exclusion_radius_bars must be a non-negative integer")
 
     event_idx = _required_int(event, "idx")
+    if event_idx < 0:
+        raise ValueError("event idx must be non-negative")
     symbol = event["symbol"]
     event_indices = []
     for value in qualifying_event_indices:
         if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
             raise ValueError("qualifying event indices must be non-negative integers")
         event_indices.append(int(value))
+    if event_idx not in event_indices:
+        raise ValueError("qualifying_event_indices must include the event being matched")
 
     unique_candidates: dict[int, Mapping[str, Any]] = {}
     for candidate in candidate_controls:
