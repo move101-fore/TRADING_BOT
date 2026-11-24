@@ -95,16 +95,19 @@ def test_fixed_window_edges_are_inclusive():
 
 def test_excludes_controls_within_96_bars_of_any_qualifying_sweep():
     event = make_event()
-    candidates = [candidate(9_800), candidate(9_900), candidate(10_100),
-                  candidate(10_200), candidate(10_300)]
+    candidates = [candidate(9_800), candidate(9_900), candidate(10_104),
+                  candidate(10_103), candidate(10_200), candidate(10_296),
+                  candidate(10_297)]
     # The second sweep is not the event being matched, but its exclusion zone
-    # must still be applied.
+    # must still be applied. Exactly 96 bars is excluded; 97 bars is eligible.
     chosen = select_h7_controls(
         event, candidates, [10_000, 10_200], set()
     )
-    assert 10_100 not in chosen
+    assert 10_104 not in chosen
     assert 10_200 not in chosen
-    assert 10_300 not in chosen
+    assert 10_296 not in chosen
+    assert 10_103 in chosen
+    assert 10_297 in chosen
 
 
 def test_requires_exact_matching_keys():
@@ -174,3 +177,17 @@ def test_rejects_duplicate_candidate_indices_and_invalid_event_direction():
         select_h7_controls(
             make_event(direction=0), [], [10_000], set()
         )
+
+
+
+def test_accepts_numpy_integer_indices_from_dataframe_rows():
+    event = make_event(idx=np.int64(10_000))
+    candidates = [
+        candidate(np.int64(9_900)),
+        candidate(np.int64(10_100)),
+        candidate(np.int64(10_200)),
+    ]
+    chosen = select_h7_controls(
+        event, candidates, np.array([10_000], dtype=np.int64), set()
+    )
+    assert chosen == (9_900, 10_100, 10_200)
