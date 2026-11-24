@@ -69,11 +69,23 @@ Retain the inherited high-impact scheduled-news exclusion for currencies in the 
 
 News-regime breakdowns are descriptive only and do not become a fifth H7 layer.
 
-## 8. Matched controls — unresolved
+## 8. Matched controls and volatility buckets — H7-R1 decisions approved
 
-The registry's frozen event-study description specifies 10 closest controls, while the current event-study implementation defaults to 5. The earlier H7 draft proposed 5. Reconcile this conflict against the registered method before H7 is frozen.
+The following H7-R1 matching decisions are approved and implemented independently of the shared H6 event-study engine:
 
-Controls must match symbol, research period, hour/session, volatility bucket and direction; be outside the exclusion radius around same-kind events; be selected without reuse; and have matching failures reported by dose. Fix the primary control count and matching window before H7 outcomes are examined. Do not silently discard events that cannot be matched.
+- Select up to **5** eligible controls per event; require at least **3** valid controls.
+- Candidate control indices must lie within the fixed inclusive window **±1,440 M15 bars** of the event. Never widen the window.
+- Match exactly on symbol, research period, hour of day, volatility bucket and direction.
+- Exclude any candidate within **96 M15 bars**, inclusive, of **any qualifying H7 sweep event** for that symbol, regardless of dose or layer group.
+- A control bar may be used only once across all H7 events for that symbol, periods and dose groups.
+- Select the nearest controls by absolute bar-index distance; break equal-distance ties by lower bar index.
+- If fewer than 3 eligible controls remain, retain the event and available-control count in attrition reporting, but exclude it from matched-excess analysis. Do not reserve those controls for an unmatched event.
+- Report events with 3, 4, 5 and fewer than 3 controls separately. Run a sensitivity analysis restricted to events with exactly 5 valid controls.
+- Each matched event has equal weight; its control benchmark is the arithmetic mean of its selected controls.
+
+Volatility matching is defined on completed M15 ATR(14) values. For bar i, divide its ATR by the median of the **previous 1,000 completed M15 ATR values**, ending at i-1; the current bar is excluded from its reference median. The ratio buckets are fixed as `[0, 0.8)`, `[0.8, 1.0)`, `[1.0, 1.25)`, `[1.25, 1.6)` and `[1.6, +∞)`. Bars without 1,000 prior valid ATR observations or with a non-positive/non-finite ATR are ineligible for matching.
+
+These decisions supersede the generic 10-control / widening description for H7-R1 only. They do not change the registry's shared event-study method or H6.
 
 ## 9. Data and market-clock definitions — unresolved
 
