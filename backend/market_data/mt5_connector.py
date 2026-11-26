@@ -1,3 +1,4 @@
+import logging
 import math
 import time
 from dataclasses import dataclass, field
@@ -6,6 +7,8 @@ import pandas as pd
 
 from backend import config
 from backend.risk.models import SymbolSpec
+
+log = logging.getLogger(__name__)
 
 TIMEFRAME_NAMES = ("M15", "H1", "H4", "D1")
 
@@ -140,6 +143,7 @@ class MT5Connector:
         self.kill_on_failure = kill_on_failure
         self.connected = False
         self.last_permissions = None
+        self.last_kill_error = None     # set if the kill switch could not be activated
 
     # ----- failure handling
     def _shutdown_quietly(self):
@@ -149,15 +153,47 @@ class MT5Connector:
         except Exception:
             pass
 
+    @property
+    def _kill_armed(self):
+        return self.kill is not None and self.kill_on_failure
+
     def _fail(self, exc):
-        """Shut down, optionally trip the kill switch, then raise."""
+        """Shut down, optionally trip the kill switch, then raise.
+
+        If the kill switch itself cannot be activated the original error is still raised,
+        but the problem is logged at CRITICAL, kept in `last_kill_error`, and attached to
+        the exception as `kill_switch_error`, so it is never silent.
+        """
         self._shutdown_quietly()
-        if self.kill is not None and self.kill_on_failure:
+        if self._kill_armed:
             try:
                 self.kill.activate(f"MT5: {type(exc).__name__}: {exc}", source="mt5")
-            except Exception:
-                pass
+            except Exception as kill_exc:
+                self.last_kill_error = f"{type(kill_exc).__name__}: {kill_exc}"
+                exc.kill_switch_error = self.last_kill_error
+                log.critical("MT5 failure (%s) and the kill switch could NOT be activated (%s). "
+                             "Stop trading manually.", exc, self.last_kill_error)
         raise exc
+
+    def _require_kill_switch_for_trading(self, require_trading):
+        """A trading connection must never exist without an armed kill switch."""
+        if require_trading and not self._kill_armed:
+            self._fail(MT5PermissionError(
+                "trading use requires a kill switch with kill_on_failure=True; "
+                "refusing to connect for trading"))
+
+    def _last_error(self):
+        try:
+            return self.api.last_error()
+        except Exception as exc:
+            return f"last_error unavailable: {type(exc).__name__}: {exc}"
+
+    def _api_info(self, name):
+        """Call terminal_info/account_info; any raw exception becomes an MT5ConnectionError."""
+        try:
+            return getattr(self.api, name)()
+        except Exception as exc:
+            raise MT5ConnectionError(f"{name} failed: {type(exc).__name__}: {exc}") from exc
 
     # ----- account checks
     def _mode_name(self, value):
@@ -193,8 +229,8 @@ class MT5Connector:
         return problems
 
     def check_permissions(self, term=None, acct=None):
-        term = term if term is not None else self.api.terminal_info()
-        acct = acct if acct is not None else self.api.account_info()
+        term = term if term is not None else self._api_info("terminal_info")
+        acct = acct if acct is not None else self._api_info("account_info")
         issues = []
         if term is None or acct is None:
             issues.append("terminal or account information is unavailable")
@@ -210,12 +246,12 @@ class MT5Connector:
         return PermissionReport(trading_ok=not issues, issues=issues)
 
     def _check_session(self, require_trading):
-        term = self.api.terminal_info()
+        term = self._api_info("terminal_info")
         if term is None:
             raise MT5ConnectionError("terminal information is unavailable")
         if not getattr(term, "connected", False):
             raise MT5ConnectionError("the MT5 terminal is not connected to the broker server")
-        acct = self.api.account_info()
+        acct = self._api_info("account_info")
         problems = self.account_problems(acct)
         if problems:
             raise MT5AccountError("; ".join(problems))
@@ -227,6 +263,7 @@ class MT5Connector:
     # ----- connect / disconnect
     def connect(self, require_trading=False):
         """Connect, log in if needed, then VERIFY account, server, type and permissions."""
+        self._require_kill_switch_for_trading(require_trading)
         try:
             self._check_configured()
         except MT5Error as e:
@@ -241,7 +278,7 @@ class MT5Connector:
             try:
                 if self.api.initialize(**kwargs):
                     break
-                last = self.api.last_error()
+                last = self._last_error()
             except Exception as exc:
                 last = f"{type(exc).__name__}: {exc}"
                 self._shutdown_quietly()
@@ -266,7 +303,7 @@ class MT5Connector:
                     server=self.expected_server,
                 ):
                     raise MT5AccountError(
-                        f"login to the expected account failed: {self.api.last_error()}"
+                        f"login to the expected account failed: {self._last_error()}"
                     )
             acct = self._check_session(require_trading)
         except MT5Error as e:
@@ -285,6 +322,7 @@ class MT5Connector:
 
     def ensure_connected(self, require_trading=False):
         """Cheap re-check before every request; reconnects once with full verification if the link dropped."""
+        self._require_kill_switch_for_trading(require_trading)
         try:
             return self._check_session(require_trading)
         except (MT5AccountError, MT5PermissionError) as e:
@@ -307,9 +345,13 @@ class MT5Connector:
             except Exception as exc:
                 result, last = None, repr(exc)
             else:
-                if result is not None and (validate is None or validate(result)):
+                try:
+                    valid = result is not None and (validate is None or validate(result))
+                except Exception:
+                    valid = False
+                if valid:
                     return result
-                last = self.api.last_error()
+                last = self._last_error()
             if i < attempts - 1:
                 self.sleep(self.backoff * (2 ** i))
         raise MT5RequestError(f"{label} failed after {attempts} attempt(s): {last}")
@@ -327,7 +369,11 @@ class MT5Connector:
             info = self.request("symbol_info", self.api.symbol_info, broker)
         except MT5RequestError as e:
             raise MT5SymbolError(f"{symbol} ({broker}): {e}")
-        problems = validate_symbol_info(info, self.api)
+        try:
+            problems = validate_symbol_info(info, self.api)
+        except Exception as exc:
+            raise MT5SymbolError(f"{symbol} ({broker}): symbol record could not be read "
+                                 f"({type(exc).__name__}: {exc})") from exc
         if problems:
             raise MT5SymbolError(f"{symbol} ({broker}): " + "; ".join(problems))
         tick_value = getattr(info, "trade_tick_value_loss", 0) or info.trade_tick_value
@@ -354,15 +400,27 @@ class MT5Connector:
         broker = self.broker_symbol(symbol)
         try:
             self.request("symbol_select", self.api.symbol_select, broker, True, validate=lambda r: r is True)
-            tf = getattr(self.api, f"TIMEFRAME_{timeframe}")
+            tf = getattr(self.api, f"TIMEFRAME_{timeframe}", None)
+            if tf is None:
+                raise MT5RequestError(f"the MT5 API has no TIMEFRAME_{timeframe}")
             rates = self.request("copy_rates_from_pos", self.api.copy_rates_from_pos, broker, tf, 1, count,
                                  validate=lambda r: len(r) > 0)
         except MT5RequestError as e:
             raise MT5RequestError(f"{symbol}: {e}")
-        df = pd.DataFrame(rates)
-        df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
-        df = df[["time", "open", "high", "low", "close", "tick_volume", "spread"]]
-        return validate_candles(df)
+        try:
+            df = pd.DataFrame(rates)
+            df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+            df = df[["time", "open", "high", "low", "close", "tick_volume", "spread"]]
+        except Exception as exc:
+            raise MT5RequestError(f"{symbol}: candle data could not be read "
+                                  f"({type(exc).__name__}: {exc})") from exc
+        try:
+            return validate_candles(df)
+        except MT5Error:
+            raise
+        except Exception as exc:
+            raise MT5RequestError(f"{symbol}: candle data could not be checked "
+                                  f"({type(exc).__name__}: {exc})") from exc
 
 
 # ------------------------------------------------------------------ module-level helpers
