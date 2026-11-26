@@ -62,7 +62,7 @@ def data_gate(frames, limit_pct=GATE_LIMIT_PCT, presence=0.5):
     union = sets[next(iter(sets))]
     for idx in sets.values():
         union = union.union(idx)
-    slot = (union.dayofweek * 96 + union.hour * 4 + union.minute // 15).to_numpy()
+    slot = (union.day_of_week * 96 + union.hour * 4 + union.minute // 15).to_numpy()
     out = {}
     for sym, idx in sets.items():
         present = union.isin(idx)

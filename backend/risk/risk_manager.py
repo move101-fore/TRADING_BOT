@@ -65,9 +65,25 @@ class RiskManager:
         return []
 
     def _spec_problems(self, spec: SymbolSpec):
-        ok = finite_positive(spec.point, spec.tick_size, spec.tick_value,
-                             spec.volume_min, spec.volume_max, spec.volume_step)
-        return [] if ok else ["INVALID_INPUT"]
+        values = (
+            spec.point, spec.tick_size, spec.tick_value,
+            spec.volume_min, spec.volume_max, spec.volume_step,
+        )
+        if any(isinstance(v, bool) or not isinstance(v, (int, float))
+               for v in values):
+            return ["INVALID_INPUT"]
+
+        if not finite_positive(*values):
+            return ["INVALID_INPUT"]
+
+        if spec.volume_min > spec.volume_max:
+            return ["INVALID_INPUT"]
+
+        ratio = spec.volume_min / spec.volume_step
+        if not math.isfinite(ratio) or abs(ratio - round(ratio)) > 1e-6:
+            return ["INVALID_INPUT"]
+
+        return []
 
     def _breaches(self, a: AccountState):
         """Hard limits. Returns list of (code, close_all)."""

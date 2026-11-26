@@ -284,7 +284,13 @@ def test_loss_side_tick_value_is_preferred():
     ({"volume_min": 0.015}, "multiple"),
     ({"trade_contract_size": 0.0}, "trade_contract_size"),
     ({"trade_stops_level": -1}, "trade_stops_level"),
+    ({"trade_stops_level": float("nan")}, "trade_stops_level"),
+    ({"trade_stops_level": float("inf")}, "trade_stops_level"),
+    ({"trade_stops_level": float("-inf")}, "trade_stops_level"),
+    ({"trade_stops_level": True}, "trade_stops_level"),
+    ({"trade_stops_level": 1.5}, "trade_stops_level"),
     ({"digits": -1}, "digits"),
+    ({"digits": True}, "digits"),
     ({"trade_mode": 0}, "not fully enabled"),
     ({"trade_mode": 3}, "not fully enabled"),
 ])
@@ -445,3 +451,55 @@ def test_unsupported_timeframe_is_refused():
     c.connect()
     with pytest.raises(ValueError):
         c.get_candles("EURUSD", "M5", 5)
+
+
+# ---------------------------------------------------------------- unexpected MT5 exceptions during connection
+
+def test_initialize_python_exception_retries_and_shuts_down():
+    fake = FakeMT5()
+
+    def broken_initialize(**kwargs):
+        fake.init_calls += 1
+        raise RuntimeError("simulated initialize crash")
+
+    fake.initialize = broken_initialize
+    c, _ = make(fake, retries=3)
+
+    with pytest.raises(MT5ConnectionError, match="3 attempts"):
+        c.connect()
+
+    assert fake.init_calls == 3
+    assert fake.shutdown_calls >= 3
+    assert not c.connected
+
+
+def test_account_info_python_exception_shuts_down_connection():
+    fake = FakeMT5()
+
+    def broken_account_info():
+        raise RuntimeError("simulated account info crash")
+
+    fake.account_info = broken_account_info
+    c, _ = make(fake)
+
+    with pytest.raises(MT5ConnectionError, match="account info crash"):
+        c.connect()
+
+    assert fake.shutdown_calls >= 1
+    assert not c.connected
+
+
+def test_terminal_info_python_exception_shuts_down_connection():
+    fake = FakeMT5()
+
+    def broken_terminal_info():
+        raise RuntimeError("simulated terminal info crash")
+
+    fake.terminal_info = broken_terminal_info
+    c, _ = make(fake)
+
+    with pytest.raises(MT5ConnectionError, match="terminal info crash"):
+        c.connect()
+
+    assert fake.shutdown_calls >= 1
+    assert not c.connected
