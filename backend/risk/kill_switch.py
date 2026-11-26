@@ -1,8 +1,14 @@
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_PATH = Path("data") / "kill_switch.json"
+# State files live in ONE absolute folder, so the kill switch and risk log are the same
+# no matter which directory the bot is started from. Override with TRADING_BOT_DATA_DIR.
+DATA_DIR = (Path(os.environ["TRADING_BOT_DATA_DIR"]).expanduser().resolve()
+            if os.environ.get("TRADING_BOT_DATA_DIR")
+            else Path(__file__).resolve().parents[2] / "data")
+DEFAULT_PATH = DATA_DIR / "kill_switch.json"
 
 
 def _now():
