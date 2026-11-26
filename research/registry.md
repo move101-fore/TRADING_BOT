@@ -48,3 +48,8 @@
 - GBPUSD excluded from H5 and H1 event studies: H1 history is 8.42% incomplete (every month of 2022 patchy). All other symbols are under 3% missing.
 
 - H5-v1 FINAL (R2.1 hardened re-run, 7 symbols, development only): BOS excess +0.007/-0.007/-0.028 ATR (placebo p 0.43-0.54); CHoCH excess negative (placebo p 0.81-0.92); verdict FAIL for both; validation NOT opened; 1 of 12 variants used.
+
+## 10. H6-v1 (variant 2 of 12) - CLOSED, INCONCLUSIVE
+- Frozen: sha256 7cbdc9773eac7fd9bdb1c47ec712420a9db473aa928661fce095851555e4d143, commit 25e6afced5.
+- Counts only (news filter pending): development 3 events, validation 0; minimums 300 and 150 per horizon. Largest single loss: liquidity confluence (91 percent of attempts).
+- Revision H6-v1.1 NOT used: no single relaxation approaches the minimum, and confluence is protected. No returns calculated; validation look unspent; holdout sealed.

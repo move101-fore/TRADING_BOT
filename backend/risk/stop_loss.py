@@ -1,4 +1,5 @@
 import math
+from decimal import Decimal, InvalidOperation
 
 from backend.risk.models import RiskConfig, SymbolSpec, finite_positive
 
@@ -27,9 +28,25 @@ def validate_levels(direction, entry, stop, target, spread, atr, spec: SymbolSpe
     if codes:
         return codes, 0.0, 0.0
 
-    stop_dist = abs(entry - stop)
-    reward_dist = abs(target - entry)
-    rr = reward_dist / stop_dist
+    try:
+        entry_decimal = Decimal(str(entry))
+        stop_decimal = Decimal(str(stop))
+        target_decimal = Decimal(str(target))
+
+        stop_dist_decimal = abs(entry_decimal - stop_decimal)
+        reward_dist_decimal = abs(target_decimal - entry_decimal)
+
+        if stop_dist_decimal <= 0 or reward_dist_decimal <= 0:
+            return ["INVALID_INPUT"], 0.0, 0.0
+
+        rr_decimal = reward_dist_decimal / stop_dist_decimal
+
+        stop_dist = float(stop_dist_decimal)
+        reward_dist = float(reward_dist_decimal)
+        rr = float(rr_decimal)
+
+    except (InvalidOperation, ValueError, TypeError, OverflowError):
+        return ["INVALID_INPUT"], 0.0, 0.0
 
     min_dist = spec.stops_level_points * spec.point
     if stop_dist < min_dist:

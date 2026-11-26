@@ -54,7 +54,9 @@ def test_lot_size_rounds_down_never_up():
 def test_round_down_helper():
     assert round_down_to_step(0.169, 0.01) == 0.16
     assert round_down_to_step(0.17, 0.01) == 0.17
+    assert round_down_to_step(0.169999999999, 0.01) == 0.16
     assert round_down_to_step(float("nan"), 0.01) == 0.0
+    assert round_down_to_step(True, 0.01) == 0.0
 
 
 def test_fuzz_sizing_never_exceeds_cap():
@@ -267,6 +269,13 @@ def test_invalid_inputs_fail_closed(tmp_path):
     assert "INVALID_INPUT" in m.evaluate(buy(), acct(equity=float("nan")), [], EURUSD).codes
     bad_spec = SymbolSpec("EURUSD", 0.00001, 0.00001, 0.0, 0.01, 100.0, 0.01)
     assert "INVALID_INPUT" in m.evaluate(buy(), acct(), [], bad_spec).codes
+
+    reversed_volume = SymbolSpec("EURUSD", 0.00001, 0.00001, 1.0, 1.0, 0.5, 0.01)
+    assert "INVALID_INPUT" in m.evaluate(buy(), acct(), [], reversed_volume).codes
+
+    misaligned_volume = SymbolSpec("EURUSD", 0.00001, 0.00001, 1.0, 0.015, 100.0, 0.01)
+    assert "INVALID_INPUT" in m.evaluate(buy(), acct(), [], misaligned_volume).codes
+
     nan_trade = buy(entry=float("nan"))
     assert not m.evaluate(nan_trade, acct(), [], EURUSD).approved
 

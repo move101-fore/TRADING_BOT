@@ -1,0 +1,7 @@
+horizon,period,events,needed,enough
+24,development,3,300,False
+24,validation,0,150,False
+48,development,3,300,False
+48,validation,0,150,False
+96,development,3,300,False
+96,validation,0,150,False

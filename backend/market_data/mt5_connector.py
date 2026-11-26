@@ -77,9 +77,17 @@ def validate_symbol_info(info, api=None):
         ratio = info.volume_min / info.volume_step
         if abs(ratio - round(ratio)) > 1e-6:
             problems.append("volume_min is not a multiple of volume_step")
-    if not (isinstance(info.digits, int) and info.digits >= 0):
+    if not (
+        isinstance(info.digits, int)
+        and not isinstance(info.digits, bool)
+        and info.digits >= 0
+    ):
         problems.append(f"digits is invalid ({info.digits!r})")
-    if not (isinstance(info.trade_stops_level, (int, float)) and info.trade_stops_level >= 0):
+    if not (
+        isinstance(info.trade_stops_level, int)
+        and not isinstance(info.trade_stops_level, bool)
+        and info.trade_stops_level >= 0
+    ):
         problems.append(f"trade_stops_level is invalid ({info.trade_stops_level!r})")
     full = getattr(api, "SYMBOL_TRADE_MODE_FULL", 4) if api is not None else 4
     if info.trade_mode != full:
@@ -229,24 +237,46 @@ class MT5Connector:
             kwargs = {"timeout": 120000}
             if self.path:
                 kwargs["path"] = self.path
-            if self.api.initialize(**kwargs):
-                break
-            last = self.api.last_error()
+
+            try:
+                if self.api.initialize(**kwargs):
+                    break
+                last = self.api.last_error()
+            except Exception as exc:
+                last = f"{type(exc).__name__}: {exc}"
+                self._shutdown_quietly()
+
             if attempt < self.retries - 1:
                 self.sleep(self.backoff * (2 ** attempt))
         else:
-            self._fail(MT5ConnectionError(f"MT5 initialize failed after {self.retries} attempts: {last}"))
+            self._fail(MT5ConnectionError(
+                f"MT5 initialize failed after {self.retries} attempts: {last}"
+            ))
 
         try:
             acct = self.api.account_info()
             if acct is None or getattr(acct, "login", None) != self.expected_login:
                 if not self.password:
-                    raise MT5AccountError("the terminal is not on the expected account and no password is configured")
-                if not self.api.login(self.expected_login, password=self.password, server=self.expected_server):
-                    raise MT5AccountError(f"login to the expected account failed: {self.api.last_error()}")
+                    raise MT5AccountError(
+                        "the terminal is not on the expected account and no password is configured"
+                    )
+                if not self.api.login(
+                    self.expected_login,
+                    password=self.password,
+                    server=self.expected_server,
+                ):
+                    raise MT5AccountError(
+                        f"login to the expected account failed: {self.api.last_error()}"
+                    )
             acct = self._check_session(require_trading)
         except MT5Error as e:
             self._fail(e)
+        except Exception as exc:
+            self._fail(MT5ConnectionError(
+                "unexpected exception during MT5 connection verification: "
+                f"{type(exc).__name__}: {exc}"
+            ))
+
         self.connected = True
         return acct
 
