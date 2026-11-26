@@ -240,23 +240,23 @@ def test_data_only_connection_does_not_need_trading_permission():
     ("account", "trade_allowed", False, "not allowed on this account"),
     ("account", "trade_expert", False, "expert"),
 ])
-def test_trading_mode_rejects_missing_permissions(where, attr, value, text):
-    c, fake = make()
+def test_trading_mode_rejects_missing_permissions(where, attr, value, text, tmp_path):
+    c, fake = make(kill_switch=KillSwitch(tmp_path / "ks.json"), kill_on_failure=True)
     setattr(getattr(fake, where), attr, value)
     with pytest.raises(MT5PermissionError, match=text):
         c.connect(require_trading=True)
     assert fake.shutdown_calls >= 1
 
 
-def test_missing_permission_fields_fail_closed():
-    c, fake = make()
+def test_missing_permission_fields_fail_closed(tmp_path):
+    c, fake = make(kill_switch=KillSwitch(tmp_path / "ks.json"), kill_on_failure=True)
     fake.terminal = SimpleNamespace(connected=True)
-    with pytest.raises(MT5PermissionError):
+    with pytest.raises(MT5PermissionError, match="Algo Trading"):
         c.connect(require_trading=True)
 
 
-def test_all_permissions_ok_in_trading_mode():
-    c, _ = make()
+def test_all_permissions_ok_in_trading_mode(tmp_path):
+    c, _ = make(kill_switch=KillSwitch(tmp_path / "ks.json"), kill_on_failure=True)
     assert c.connect(require_trading=True).login == 123456 and c.last_permissions.trading_ok
 
 
