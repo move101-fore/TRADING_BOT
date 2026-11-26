@@ -3,10 +3,10 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 
-from backend.risk.kill_switch import KillSwitch
+from backend.risk.kill_switch import DATA_DIR, KillSwitch
 from backend.risk.models import (
     AccountState, Decision, MonitorResult, OpenPosition, RiskConfig, SymbolSpec,
-    TradeProposal, finite_positive, REASON_TEXT,
+    TradeProposal, finite_number, finite_positive, REASON_TEXT,
 )
 from backend.risk.position_sizing import lots_for_risk, risk_money
 from backend.risk.stop_loss import validate_levels
@@ -18,7 +18,7 @@ LOG_COLUMNS = ["time", "symbol", "direction", "strategy", "entry", "stop_loss",
 class RiskEventLog:
     """Appends one CSV row for every approved or rejected trade."""
 
-    def __init__(self, path=Path("data") / "risk_events.csv"):
+    def __init__(self, path=DATA_DIR / "risk_events.csv"):
         self.path = Path(path)
 
     def record(self, proposal, decision):
@@ -58,7 +58,7 @@ class RiskManager:
         c = self.cfg
         if not finite_positive(a.balance, a.equity, a.day_start_equity, a.peak_equity):
             return ["INVALID_INPUT"]
-        if not (isinstance(a.data_age_seconds, (int, float)) and math.isfinite(a.data_age_seconds)):
+        if not finite_number(a.data_age_seconds) or a.data_age_seconds < 0:
             return ["INVALID_INPUT"]
         if a.data_age_seconds > c.max_data_age_seconds:
             return ["STALE_DATA"]
@@ -83,6 +83,29 @@ class RiskManager:
         if not math.isfinite(ratio) or abs(ratio - round(ratio)) > 1e-6:
             return ["INVALID_INPUT"]
 
+        return []
+
+    @staticmethod
+    def _as_list(positions):
+        """None -> []. Anything that cannot be turned into a list -> None (invalid)."""
+        try:
+            return list(positions or [])
+        except TypeError:
+            return None
+
+    @staticmethod
+    def _position_problems(positions):
+        """Every open position must be complete, finite and have a real stop-loss."""
+        if positions is None:
+            return ["INVALID_INPUT"]
+        for pos in positions:
+            ok = (isinstance(pos, OpenPosition)
+                  and isinstance(pos.symbol, str) and pos.symbol.strip() != ""
+                  and not isinstance(pos.direction, bool) and pos.direction in (1, -1)
+                  and finite_positive(pos.volume, pos.entry, pos.stop_loss)   # stop_loss 0 = no stop
+                  and finite_number(pos.risk_amount))
+            if not ok:
+                return ["INVALID_INPUT"]
         return []
 
     def _breaches(self, a: AccountState):
@@ -111,11 +134,29 @@ class RiskManager:
         Call regularly (for example every few seconds). Locks trading when a hard
         limit is hit and tells the execution layer what to do. This module does not
         close trades itself; it returns CLOSE_ALL_POSITIONS for the executor to act on.
+        Unknown or invalid state (bad account, bad positions, unexpected error) locks
+        trading: it never reports "all clear" when it cannot tell.
         """
-        problems = self._account_problems(account)
+        try:
+            return self._monitor(account, positions)
+        except Exception:
+            return self._lock_for(["INTERNAL_ERROR"])
+
+    def _lock_for(self, problems):
+        codes = list(problems)
+        try:
+            self.kill.activate("AUTO: " + codes[0], source="risk_manager")
+        except Exception:
+            codes.append("KILL_SWITCH_WRITE_FAILED")
+        return MonitorResult(["BLOCK_NEW_ORDERS"], codes)
+
+    def _monitor(self, account, positions):
+        if not isinstance(account, AccountState):
+            return self._lock_for(["INVALID_INPUT"])
+        positions = self._as_list(positions)
+        problems = self._account_problems(account) or self._position_problems(positions)
         if problems:
-            self.kill.activate("AUTO: " + problems[0], source="risk_manager")
-            return MonitorResult(["BLOCK_NEW_ORDERS"], problems)
+            return self._lock_for(problems)
         breaches = self._breaches(account)
         if not breaches:
             return MonitorResult([], [])
@@ -127,9 +168,17 @@ class RiskManager:
 
     # ----------------------------------------------------------------- evaluate
     def evaluate(self, p: TradeProposal, account: AccountState, positions, spec: SymbolSpec):
-        decision = self._evaluate(p, account, list(positions or []), spec)
+        """Never raises and never approves on bad input: failures become rejections."""
+        try:
+            decision = self._evaluate(p, account, self._as_list(positions), spec)
+        except Exception:
+            decision = self._reject(["INTERNAL_ERROR"])
         if self.log is not None:
-            self.log.record(p, decision)
+            try:
+                self.log.record(p, decision)
+            except Exception:
+                if decision.approved:           # no audit trail, no trade
+                    decision = self._reject(["AUDIT_LOG_FAILED"])
         return decision
 
     def _reject(self, codes):
@@ -140,7 +189,12 @@ class RiskManager:
         if self.kill.is_active():
             return self._reject(["KILL_SWITCH_ACTIVE"])
 
-        problems = self._account_problems(account) + self._spec_problems(spec)
+        if not (isinstance(p, TradeProposal) and isinstance(account, AccountState)
+                and isinstance(spec, SymbolSpec)):
+            return self._reject(["INVALID_INPUT"])
+
+        problems = (self._account_problems(account) + self._spec_problems(spec)
+                    + self._position_problems(positions))
         if p.symbol != spec.symbol:
             problems.append("INVALID_INPUT")
         if problems:
